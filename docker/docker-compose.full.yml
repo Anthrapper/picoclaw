@@ -1,44 +1,75 @@
 services:
   # ─────────────────────────────────────────────
-  # PicoClaw Agent (one-shot query) - Full MCP Support
-  #   docker compose -f docker/docker-compose.full.yml run --rm picoclaw-agent -m "Hello"
+  # PicoClaw Agent (one-shot / interactive query)
+  #   docker compose -f docker/docker-compose.full.yml --profile agent run --rm picoclaw-agent -m "Hello"
   # ─────────────────────────────────────────────
   picoclaw-agent:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.full
+      dockerfile: docker/Dockerfile.heavy
+    image: picoclaw-heavy:latest
     container_name: picoclaw-agent-full
     profiles:
       - agent
     volumes:
       - ../config/config.json:/root/.picoclaw/config.json:ro
       - picoclaw-workspace:/root/.picoclaw/workspace
-      - picoclaw-npm-cache:/root/.npm # npm cache for faster MCP server installs
+      - picoclaw-npm-cache:/root/.npm
+      - playwright-browsers:/opt/playwright-browsers
+    environment:
+      - TZ=${TZ:-UTC}
+      - PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
     entrypoint: ["picoclaw", "agent"]
     stdin_open: true
     tty: true
 
   # ─────────────────────────────────────────────
-  # PicoClaw Gateway (Long-running Bot) - Full MCP Support
-  #   docker compose -f docker/docker-compose.full.yml --profile gateway up
+  # PicoClaw Gateway (long-running bot daemon)
+  #   docker compose -f docker/docker-compose.full.yml --profile gateway up -d
   # ─────────────────────────────────────────────
   picoclaw-gateway:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.full
+      dockerfile: docker/Dockerfile.heavy
+    image: picoclaw-heavy:latest
     container_name: picoclaw-gateway-full
     restart: unless-stopped
-    profiles:
-      - gateway
+    ports:
+      - "${PICOCLAW_GATEWAY_PORT:-18790}:18790"
+      - "${PICOCLAW_LAUNCHER_PORT:-18800}:18800"
     volumes:
-      # Configuration file
       - ../config/config.json:/root/.picoclaw/config.json:ro
-      # Persistent workspace (sessions, memory, logs)
       - picoclaw-workspace:/root/.picoclaw/workspace
-      # NPM cache for faster MCP server installs
       - picoclaw-npm-cache:/root/.npm
+      - playwright-browsers:/opt/playwright-browsers
+    environment:
+      # Must be 0.0.0.0 — default 127.0.0.1 blocks all external traffic
+      - PICOCLAW_GATEWAY_HOST=0.0.0.0
+      - PICOCLAW_LOG_LEVEL=${PICOCLAW_LOG_LEVEL:-warn}
+      - TZ=${TZ:-UTC}
+      - PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
     command: ["gateway"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:18790/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    # Dokploy / Traefik labels — update domains to match yours
+    labels:
+      - "traefik.enable=true"
+      # WebUI Launcher
+      - "traefik.http.routers.picoclaw-ui.rule=Host(`picoclaw.yourdomain.com`)"
+      - "traefik.http.routers.picoclaw-ui.entrypoints=websecure"
+      - "traefik.http.routers.picoclaw-ui.tls.certresolver=letsencrypt"
+      - "traefik.http.services.picoclaw-ui.loadbalancer.server.port=18800"
+      # Gateway (webhooks)
+      - "traefik.http.routers.picoclaw-gw.rule=Host(`picoclaw-gw.yourdomain.com`)"
+      - "traefik.http.routers.picoclaw-gw.entrypoints=websecure"
+      - "traefik.http.routers.picoclaw-gw.tls.certresolver=letsencrypt"
+      - "traefik.http.services.picoclaw-gw.loadbalancer.server.port=18790"
 
 volumes:
   picoclaw-workspace:
-  picoclaw-npm-cache: # Cache npm packages to speed up MCP server installations
+  picoclaw-npm-cache: # Reused MCP npm packages across restarts
+  playwright-browsers: # Chromium binaries — avoids re-download on rebuild
