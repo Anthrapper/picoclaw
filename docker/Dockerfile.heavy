@@ -16,6 +16,9 @@ RUN go mod download
 
 # Copy source and build
 COPY . .
+# go generate walks up to find .git to locate repo root.
+# Docker build has no .git dir, so we create a minimal one.
+RUN git init && git add -A && git commit -m "build" --allow-empty
 RUN make build
 
 # ============================================================
