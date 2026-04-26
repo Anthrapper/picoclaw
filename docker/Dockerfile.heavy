@@ -15,6 +15,11 @@ RUN go mod download
 
 # Copy source and build
 COPY . .
+# go:embed workspace in cmd/picoclaw/internal/onboard/command.go requires
+# cmd/picoclaw/workspace/ to exist. go generate normally creates it by
+# copying from the root workspace/. Do that manually instead.
+RUN cp -r workspace cmd/picoclaw/workspace
+
 # Skip `make build` (which calls `go generate` that needs git).
 # Call go build directly with the same flags the Makefile uses.
 RUN mkdir -p build && \
