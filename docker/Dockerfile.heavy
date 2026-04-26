@@ -9,18 +9,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /src
 
-# Cache dependencies
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source and build
 COPY . .
-# go:embed workspace in cmd/picoclaw/internal/onboard/command.go requires
-# the workspace dir to sit next to that file. go generate normally creates it.
 RUN cp -r workspace cmd/picoclaw/internal/onboard/workspace
 
-# Skip `make build` (which calls `go generate` that needs git).
-# Call go build directly with the same flags the Makefile uses.
 RUN mkdir -p build && \
     BUILD_TIME=$(date +%FT%T%z) && \
     GO_VERSION=$(go env GOVERSION) && \
@@ -36,7 +30,45 @@ RUN mkdir -p build && \
         ./cmd/picoclaw
 
 # ============================================================
-# Stage 2: Node.js runtime with Python + MCP support (Debian)
+# Stage 2: Build the launcher binary (Go + Node.js)
+# ============================================================
+FROM golang:1.26.0-bookworm AS launcher-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    make \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 24.x
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install -g pnpm
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN cp -r workspace cmd/picoclaw/internal/onboard/workspace
+
+# Build picoclaw binary (needed for launcher dev reference)
+RUN mkdir -p build && \
+    go build -v -tags goolm,stdjson \
+        -ldflags "-X github.com/sipeed/picoclaw/pkg/config.Version=docker \
+                  -X github.com/sipeed/picoclaw/pkg/config.GitCommit=unknown \
+                  -s -w" \
+        -o build/picoclaw ./cmd/picoclaw
+
+# Build launcher with embedded frontend
+RUN make -C web build \
+    OUTPUT="/src/build/picoclaw-launcher" \
+    PICOCLAW_BINARY="/src/build/picoclaw"
+
+# ============================================================
+# Stage 3: Node.js runtime with Python + MCP support (Debian)
 # ============================================================
 FROM node:24-bookworm-slim
 
@@ -50,35 +82,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Playwright + Chromium with all system deps auto-resolved
-# --with-deps handles apt dependencies on Debian/Ubuntu automatically
-# (replaces manual apk add chromium from the Alpine version)
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 RUN npm install -g agent-browser && \
     npx playwright install --with-deps chromium && \
     chmod -R o+rx $PLAYWRIGHT_BROWSERS_PATH
 
-# Install uv + uvx (fast Python MCP server runner)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     ln -s /root/.local/bin/uv /usr/local/bin/uv && \
     ln -s /root/.local/bin/uvx /usr/local/bin/uvx && \
     uv --version
 
-# Health check (curl instead of wget — available on Debian)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -fsS http://localhost:18790/health || exit 1
 
-# Copy binary
 COPY --from=builder /src/build/picoclaw /usr/local/bin/picoclaw
+COPY --from=launcher-builder /src/build/picoclaw-launcher /usr/local/bin/picoclaw-launcher
 
-# Run onboard to create initial ~/.picoclaw/config.json + workspace
 RUN /usr/local/bin/picoclaw onboard
-
-# Copy default workspace skills/templates
 COPY workspace/ /root/.picoclaw/workspace/
 
-# Persist the entire .picoclaw dir (config + workspace + security.yml)
-# The original only mounted workspace — this also survives config changes
 VOLUME /root/.picoclaw
 
 EXPOSE 18790 18800

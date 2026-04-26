@@ -1,4 +1,31 @@
 services:
+  picoclaw-launcher:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.heavy
+    image: picoclaw-heavy:latest
+    container_name: picoclaw-launcher-full
+    restart: unless-stopped
+    ports:
+      - "${PICOCLAW_LAUNCHER_PORT:-18800}:18800"
+      - "${PICOCLAW_GATEWAY_PORT:-18790}:18790"
+    volumes:
+      - picoclaw-data:/root/.picoclaw
+      - picoclaw-npm-cache:/root/.npm
+      - playwright-browsers:/opt/playwright-browsers
+    environment:
+      - PICOCLAW_GATEWAY_HOST=0.0.0.0
+      - TZ=${TZ:-UTC}
+      - PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+    entrypoint: ["picoclaw-launcher"]
+    command: ["-public", "-no-browser"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:18800/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   picoclaw-agent:
     build:
       context: ..
@@ -8,7 +35,7 @@ services:
     profiles:
       - agent
     volumes:
-      - picoclaw-workspace:/root/.picoclaw/workspace
+      - picoclaw-data:/root/.picoclaw
       - picoclaw-npm-cache:/root/.npm
       - playwright-browsers:/opt/playwright-browsers
     environment:
@@ -24,12 +51,13 @@ services:
       dockerfile: docker/Dockerfile.heavy
     image: picoclaw-heavy:latest
     container_name: picoclaw-gateway-full
+    profiles:
+      - gateway
     restart: unless-stopped
     ports:
       - "${PICOCLAW_GATEWAY_PORT:-18790}:18790"
-      - "${PICOCLAW_LAUNCHER_PORT:-18800}:18800"
     volumes:
-      - picoclaw-workspace:/root/.picoclaw/workspace
+      - picoclaw-data:/root/.picoclaw
       - picoclaw-npm-cache:/root/.npm
       - playwright-browsers:/opt/playwright-browsers
     environment:
@@ -44,18 +72,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.picoclaw-ui.rule=Host(`picoclaw.yourdomain.com`)"
-      - "traefik.http.routers.picoclaw-ui.entrypoints=websecure"
-      - "traefik.http.routers.picoclaw-ui.tls.certresolver=letsencrypt"
-      - "traefik.http.services.picoclaw-ui.loadbalancer.server.port=18800"
-      - "traefik.http.routers.picoclaw-gw.rule=Host(`picoclaw-gw.yourdomain.com`)"
-      - "traefik.http.routers.picoclaw-gw.entrypoints=websecure"
-      - "traefik.http.routers.picoclaw-gw.tls.certresolver=letsencrypt"
-      - "traefik.http.services.picoclaw-gw.loadbalancer.server.port=18790"
 
 volumes:
-  picoclaw-workspace:
+  picoclaw-data:
   picoclaw-npm-cache:
   playwright-browsers:
