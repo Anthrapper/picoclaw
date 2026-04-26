@@ -4,7 +4,6 @@
 FROM golang:1.26.0-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
     make \
     && rm -rf /var/lib/apt/lists/*
 
@@ -16,10 +15,22 @@ RUN go mod download
 
 # Copy source and build
 COPY . .
-# go generate walks up to find .git to locate repo root.
-# Only the directory needs to exist — no commits needed.
-RUN git init
-RUN make build
+# Skip `make build` (which calls `go generate` that needs git).
+# Call go build directly with the same flags the Makefile uses.
+RUN mkdir -p build && \
+    BUILD_TIME=$(date +%FT%T%z) && \
+    GO_VERSION=$(go env GOVERSION) && \
+    go build \
+        -v \
+        -tags goolm,stdjson \
+        -ldflags "-X github.com/sipeed/picoclaw/pkg/config.Version=docker \
+                  -X github.com/sipeed/picoclaw/pkg/config.GitCommit=unknown \
+                  -X github.com/sipeed/picoclaw/pkg/config.BuildTime=${BUILD_TIME} \
+                  -X github.com/sipeed/picoclaw/pkg/config.GoVersion=${GO_VERSION} \
+                  -s -w" \
+        -o build/picoclaw \
+        ./cmd/picoclaw && \
+    ln -sf picoclaw build/picoclaw
 
 # ============================================================
 # Stage 2: Node.js runtime with Python + MCP support (Debian)
