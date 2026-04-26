@@ -1214,7 +1214,7 @@ func TestSendWithRetry_ToolCallsPlaceholderDeleteAndFallsThroughToSend(t *testin
 			ChatID:  "123",
 			Raw: map[string]string{
 				"message_kind": "tool_calls",
-				"tool_calls":   `[{"tool_feedback_explanation":"Looking up config","function":{"name":"read_file","arguments":"{}"}}]`,
+				"tool_calls":   `[{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{}"},"extra_content":{"tool_feedback_explanation":"Looking up config"}}]`,
 			},
 		},
 	})

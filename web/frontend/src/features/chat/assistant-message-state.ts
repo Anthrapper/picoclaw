@@ -1,8 +1,8 @@
 import {
   parseToolCallsFromContent,
   parseToolCallsValue,
-} from "@/features/chat/tool-calls.ts"
-import type { AssistantMessageKind, ChatMessage } from "@/store/chat.ts"
+} from "@/features/chat/tool-calls"
+import type { AssistantMessageKind, ChatMessage } from "@/store/chat"
 
 type AssistantToolCalls = ChatMessage["toolCalls"]
 type ExistingAssistantMessageState = Pick<ChatMessage, "kind" | "toolCalls">
@@ -15,7 +15,7 @@ export interface AssistantMessageCreateState {
 
 export interface AssistantMessageUpdateState {
   content: string
-  kind?: AssistantMessageKind
+  kind: AssistantMessageKind
   toolCalls?: AssistantToolCalls
 }
 
@@ -100,9 +100,13 @@ export function parseAssistantMessageUpdateState(
   if (existing?.toolCalls) {
     return {
       content,
+      kind: existing.kind ?? "normal",
       toolCalls: undefined,
     }
   }
 
-  return { content }
+  return {
+    content,
+    kind: existing?.kind ?? "normal",
+  }
 }

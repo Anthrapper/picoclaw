@@ -14,7 +14,9 @@ function parseLegacyToolFeedbackContent(
   const body = match[2]?.trim() ?? ""
   const codeFence = /```(?:json)?\r?\n([\s\S]*?)\r?\n```/m.exec(body)
   const argumentsText = codeFence?.[1]?.trim() ?? ""
-  const explanation = body.replace(/```(?:json)?\r?\n[\s\S]*?\r?\n```/gm, "").trim()
+  const explanation = body
+    .replace(/```(?:json)?\r?\n[\s\S]*?\r?\n```/gm, "")
+    .trim()
 
   return [
     {
